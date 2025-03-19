@@ -15,6 +15,7 @@ const app = express();
 const httpPort = process.env.HTTP_PORT || 3000;
 const httpsPort = process.env.HTTPS_PORT || 3443;
 const enableHttps = process.env.ENABLE_HTTPS === 'true';
+const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
 
 // Create logs directory if it doesn't exist
 const logsDir = path.join(__dirname, '../logs');
@@ -24,6 +25,18 @@ if (!fs.existsSync(logsDir)) {
 
 // Logger function
 const logger = {
+    sendToSlack: async (message) => {
+        if (!slackWebhookUrl) return;
+
+        try {
+            await axios.post(slackWebhookUrl, {
+                text: typeof message === 'string' ? message : JSON.stringify(message, null, 2)
+            });
+        } catch (error) {
+            console.error('Error sending to Slack:', error.message);
+        }
+    },
+
     logToFile: (data) => {
         const timestamp = new Date().toISOString();
         const logFile = path.join(logsDir, `${timestamp.split('T')[0]}.log`);
@@ -32,6 +45,27 @@ const logger = {
         fs.appendFile(logFile, logEntry, (err) => {
             if (err) console.error('Error writing to log file:', err);
         });
+
+        // Send important logs to Slack
+        if (data.type === 'error' || data.type === 'zoho_request' || data.type === 'zoho_response') {
+            const slackMessage = {
+                type: data.type,
+                timestamp: timestamp,
+                ...data
+            };
+            logger.sendToSlack({
+                text: `*${data.type.toUpperCase()}*`,
+                blocks: [
+                    {
+                        type: "section",
+                        text: {
+                            type: "mrkdwn",
+                            text: `*${data.type.toUpperCase()}*\n${JSON.stringify(data, null, 2)}`
+                        }
+                    }
+                ]
+            });
+        }
     },
     
     request: (req) => {
@@ -40,20 +74,48 @@ const logger = {
             method: req.method,
             url: req.url,
             headers: req.headers,
-            body: req.body,
+            body: {
+                raw: req.rawBody,
+                parsed: req.body,
+                query: req.query,
+                params: req.params
+            },
             ip: req.ip,
             userAgent: req.get('user-agent')
         };
+
+        // If it's a form submission, include form data
+        if (req.is('application/x-www-form-urlencoded')) {
+            logData.body.formData = Object.fromEntries(
+                Object.entries(req.body).map(([key, value]) => [key, value])
+            );
+        }
         
         console.log('\n=== Incoming Request ===');
         console.log(`Time: ${logData.timestamp}`);
         console.log(`${req.method} ${req.url}`);
         console.log('Headers:', JSON.stringify(req.headers, null, 2));
-        console.log('Body:', JSON.stringify(req.body, null, 2));
+        console.log('Body:', JSON.stringify(logData.body, null, 2));
         console.log('IP:', req.ip);
         console.log('========================\n');
         
         logger.logToFile({ type: 'request', ...logData });
+
+        // Send form submissions to Slack
+        if (req.method === 'POST' && req.url === '/submit-lead') {
+            logger.sendToSlack({
+                text: `*NEW LEAD SUBMISSION*`,
+                blocks: [
+                    {
+                        type: "section",
+                        text: {
+                            type: "mrkdwn",
+                            text: `*New Lead Submission*\nTime: ${logData.timestamp}\nIP: ${req.ip}\nForm Data:\n\`\`\`${JSON.stringify(logData.body.formData || req.body, null, 2)}\`\`\``
+                        }
+                    }
+                ]
+            });
+        }
     },
     
     response: (req, res, data) => {
@@ -75,6 +137,22 @@ const logger = {
         console.log('========================\n');
         
         logger.logToFile({ type: 'response', ...logData });
+
+        // Send failed responses to Slack
+        if (res.statusCode >= 400) {
+            logger.sendToSlack({
+                text: `*FAILED RESPONSE*`,
+                blocks: [
+                    {
+                        type: "section",
+                        text: {
+                            type: "mrkdwn",
+                            text: `*Failed Response*\nStatus: ${res.statusCode}\nURL: ${req.url}\nMethod: ${req.method}\nResponse: ${JSON.stringify(data, null, 2)}`
+                        }
+                    }
+                ]
+            });
+        }
     },
     
     error: (req, error) => {
@@ -95,6 +173,20 @@ const logger = {
         console.error('=============\n');
         
         logger.logToFile({ type: 'error', ...logData });
+
+        // Send errors to Slack
+        logger.sendToSlack({
+            text: `*ERROR ALERT*`,
+            blocks: [
+                {
+                    type: "section",
+                    text: {
+                        type: "mrkdwn",
+                        text: `*Error Alert*\nURL: ${req.url}\nMethod: ${req.method}\nError: ${error.message}\nStack: ${error.stack}`
+                    }
+                }
+            ]
+        });
     }
 };
 
@@ -192,6 +284,19 @@ const isValidName = (name) => {
 
 // Middleware
 app.use(cors());
+
+// Raw body parser middleware
+app.use((req, res, next) => {
+    let rawBody = '';
+    req.on('data', chunk => {
+        rawBody += chunk;
+    });
+    req.on('end', () => {
+        req.rawBody = rawBody;
+        next();
+    });
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
