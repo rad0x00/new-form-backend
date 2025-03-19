@@ -8,7 +8,6 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const tls = require('tls');
-const getRawBody = require('raw-body');
 
 dotenv.config();
 
@@ -76,7 +75,6 @@ const logger = {
             url: req.url,
             headers: req.headers,
             body: {
-                raw: req.rawBody,
                 parsed: req.body,
                 query: req.query,
                 params: req.params
@@ -193,21 +191,6 @@ const logger = {
 
 // Middleware
 app.use(cors());
-
-// Raw body parser middleware with proper stream handling
-app.use(async (req, res, next) => {
-    if (req.headers['content-type']) {
-        try {
-            req.rawBody = (await getRawBody(req)).toString();
-        } catch (err) {
-            console.error('Error reading raw body:', err);
-            req.rawBody = '';
-        }
-    } else {
-        req.rawBody = '';
-    }
-    next();
-});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
