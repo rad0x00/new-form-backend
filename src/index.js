@@ -247,16 +247,26 @@ const tlsDebug = (info) => {
 };
 
 // Validation helper functions
-const isValidName = (name) => {
+const isValidAUName = (name) => {
     // Check length (2-40 characters)
     if (name.length < 2 || name.length > 40) {
         return false;
     }
 
-    // Check for too many uppercase letters (more than 3)
-    const uppercaseCount = (name.match(/[A-Z]/g) || []).length;
-    if (uppercaseCount > 3) {
-        return false;
+    // Check if it's a single word
+    const words = name.trim().split(/\s+/);
+    if (words.length === 1) {
+        // For single words, only allow one uppercase character
+        const uppercaseCount = (name.match(/[A-Z]/g) || []).length;
+        if (uppercaseCount > 1) {
+            return false;
+        }
+    } else {
+        // For multiple words, maintain the original uppercase limit
+        const uppercaseCount = (name.match(/[A-Z]/g) || []).length;
+        if (uppercaseCount > 3) {
+            return false;
+        }
     }
 
     // Check if contains valid characters (letters, spaces, hyphens, apostrophes)
@@ -287,13 +297,79 @@ const isValidName = (name) => {
     return true;
 };
 
+const isValidNZName = (name) => {
+    // Check length (2-40 characters)
+    if (name.length < 2 || name.length > 40) {
+        return false;
+    }
+
+    // Check if it's a single word
+    const words = name.trim().split(/\s+/);
+    if (words.length === 1) {
+        // For single words, only allow one uppercase character
+        const uppercaseCount = (name.match(/[A-Z]/g) || []).length;
+        if (uppercaseCount > 1) {
+            return false;
+        }
+    }
+
+    // Allow Māori macrons in addition to standard characters
+    if (!/^[A-Za-zĀāĒēĪīŌōŪū\s\-']+$/.test(name)) {
+        return false;
+    }
+
+    // Check for repeated characters (more than 3 times)
+    if (/(.)\1{2,}/.test(name)) {
+        return false;
+    }
+
+    // Check for keyboard patterns
+    const keyboardPatterns = [
+        'qwerty', 'asdfgh', 'zxcvbn', 'qwertz', 'azerty',
+        'asdf', 'qwer', 'wasd', 'DBYIfQEamAQ', 'UNwcUIwDb'
+    ];
+    const lowerName = name.toLowerCase();
+    if (keyboardPatterns.some(pattern => lowerName.includes(pattern))) {
+        return false;
+    }
+
+    // Check for vowels (including Māori vowels)
+    if (!/[aeiouāēīōū]/i.test(name)) {
+        return false;
+    }
+
+    return true;
+};
+
+// Australian mobile number validation
+const isValidAUMobile = (mobile) => {
+    // Remove spaces and any other non-digit characters
+    const cleanMobile = mobile.replace(/\D/g, '');
+    
+    // Check if it starts with 04 and has 10 digits total
+    // or starts with +614 and has 11 digits total
+    return /^04\d{8}$/.test(cleanMobile) || /^\+614\d{8}$/.test(cleanMobile);
+};
+
+// New Zealand mobile number validation
+const isValidNZMobile = (mobile) => {
+    // Remove spaces and any other non-digit characters
+    const cleanMobile = mobile.replace(/\D/g, '');
+    
+    // Check if it starts with 02 and has 9-10 digits total
+    // or starts with +642 and has 10-11 digits total
+    return /^02\d{7,8}$/.test(cleanMobile) || /^\+642\d{7,8}$/.test(cleanMobile);
+};
+
 // Route to handle form submission
 app.post('/submit-lead', async (req, res) => {
     try {
-        
         // Validate First Name and Last Name
         const firstName = req.body['First Name'];
         const lastName = req.body['Last Name'];
+        const mobile = req.body['Mobile'];
+        const leadSource = req.body['Lead_Source'];
+        const amount = parseFloat(req.body['Amount']);
 
         if (!firstName || !lastName) {
             return res.status(400).json({
@@ -302,18 +378,60 @@ app.post('/submit-lead', async (req, res) => {
             });
         }
 
-        if (!isValidName(firstName)) {
+        // Validate Amount
+        if (!amount || amount === 0) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid First Name provided'
+                message: 'Amount is required and must be greater than 0'
             });
         }
 
-        if (!isValidName(lastName)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid Last Name provided'
-            });
+        // Name validation based on Lead Source
+        if (leadSource === 'WebForm-AU') {
+            if (!isValidAUName(firstName)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid First Name format for Australian submission'
+                });
+            }
+            if (!isValidAUName(lastName)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid Last Name format for Australian submission'
+                });
+            }
+        } else {
+            if (!isValidNZName(firstName)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid First Name format for New Zealand submission. Name may include Māori characters (e.g., ā, ē, ī, ō, ū)'
+                });
+            }
+            if (!isValidNZName(lastName)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid Last Name format for New Zealand submission. Name may include Māori characters (e.g., ā, ē, ī, ō, ū)'
+                });
+            }
+        }
+
+        // Mobile number validation based on Lead Source
+        if (mobile) {
+            if (leadSource === 'WebForm-AU') {
+                if (!isValidAUMobile(mobile)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Invalid Australian mobile number format. Please enter a valid Australian mobile number (e.g., 0412345678 or +61412345678)'
+                    });
+                }
+            } else {
+                if (!isValidNZMobile(mobile)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Invalid New Zealand mobile number format. Please enter a valid New Zealand mobile number (e.g., 0211234567 or +64211234567)'
+                    });
+                }
+            }
         }
         
         const formData = new URLSearchParams();
