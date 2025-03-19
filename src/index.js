@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const tls = require('tls');
+const getRawBody = require('raw-body');
 
 dotenv.config();
 
@@ -190,6 +191,27 @@ const logger = {
     }
 };
 
+// Middleware
+app.use(cors());
+
+// Raw body parser middleware with proper stream handling
+app.use(async (req, res, next) => {
+    if (req.headers['content-type']) {
+        try {
+            req.rawBody = (await getRawBody(req)).toString();
+        } catch (err) {
+            console.error('Error reading raw body:', err);
+            req.rawBody = '';
+        }
+    } else {
+        req.rawBody = '';
+    }
+    next();
+});
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Add request timestamp middleware
 app.use((req, res, next) => {
     req._startTime = Date.now();
@@ -281,24 +303,6 @@ const isValidName = (name) => {
 
     return true;
 };
-
-// Middleware
-app.use(cors());
-
-// Raw body parser middleware
-app.use((req, res, next) => {
-    let rawBody = '';
-    req.on('data', chunk => {
-        rawBody += chunk;
-    });
-    req.on('end', () => {
-        req.rawBody = rawBody;
-        next();
-    });
-});
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Route to handle form submission
 app.post('/submit-lead', async (req, res) => {
