@@ -247,6 +247,38 @@ const tlsDebug = (info) => {
 };
 
 // Validation helper functions
+const isValidEmail = (email) => {
+    if (!email) return false;
+    
+    // More comprehensive email regex that supports subdomains and country TLDs
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    
+    // Check basic format
+    if (!emailRegex.test(email)) {
+        return false;
+    }
+
+    // Additional checks
+    try {
+        // Check length
+        if (email.length > 254) return false;
+
+        // Split email into local and domain parts
+        const [local, domain] = email.split('@');
+
+        // Check lengths of parts
+        if (local.length > 64) return false;
+        if (domain.length > 255) return false;
+
+        // Check if domain has at least one dot
+        if (!domain.includes('.')) return false;
+
+        return true;
+    } catch (e) {
+        return false;
+    }
+};
+
 const isValidAUName = (name) => {
     // Check length (2-40 characters)
     if (name.length < 2 || name.length > 40) {
@@ -369,12 +401,21 @@ app.post('/submit-lead', async (req, res) => {
         const lastName = req.body['Last Name'];
         const mobile = req.body['Mobile'];
         const leadSource = req.body['Lead_Source'];
-        const amount = parseFloat(req.body['Amount']);
+        const amount = parseFloat(req.body['LEADCF66']);
+        const email = req.body['Email'];
 
         if (!firstName || !lastName) {
             return res.status(400).json({
                 success: false,
                 message: 'First Name and Last Name are required'
+            });
+        }
+
+        // Validate Email
+        if (!isValidEmail(email)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid email address format'
             });
         }
 
