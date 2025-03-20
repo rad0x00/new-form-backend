@@ -400,7 +400,7 @@ app.post('/submit-lead', async (req, res) => {
         const firstName = req.body['First Name'];
         const lastName = req.body['Last Name'];
         const mobile = req.body['Phone'];
-        const leadSource = req.body['Lead_Source'];
+        const leadSource = req.body['Lead Source'];
         const amount = parseFloat(req.body['LEADCF66']);
         const email = req.body['Email'];
 
